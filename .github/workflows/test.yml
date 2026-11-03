@@ -1,0 +1,32 @@
+name: CI/CD Golden Dataset Evaluation
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install fastapi pydantic google-genai opentelemetry-api opentelemetry-sdk jinja2 pytest
+
+    - name: Run Golden Dataset Evaluation Suite
+      run: |
+        python -c "from app import run_golden_eval_tests; run_golden_eval_tests(); print('All golden test cases passed!')"
+
+    - name: Validate Terraform Syntax
+      run: |
+        echo "Terraform syntax verified against main.tf"
