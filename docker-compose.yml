@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  copilot:
+    build: .
+    ports:
+      - "18082:8080"
+    environment:
+      - GOOGLE_CLOUD_PROJECT=playground-bwallwin-3nza0h
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./deals_persistence.db:/app/deals_persistence.db
+    restart: always
