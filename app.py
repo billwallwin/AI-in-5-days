@@ -1,12 +1,8 @@
 """
 Enterprise GSF & Commercial Deal Structuring Copilot
 Built for the AI in 5 Days Capstone Assessment.
-Implements:
-1. Tool & Interface Design: Strict Pydantic models, detailed parameter docstrings, guided recovery.
-2. Context & Memory: System Constitution, ContextCompactor (sliding-window history compaction), Persistent SQLite, Async memory.
-3. Orchestration & Logic: Multi-Agent Coordinator pattern (Validation Agent + Synthesis Agent), Strategic Model Routing (Flash/Pro), Active HITL blocking.
-4. Observability & Tracing: OpenTelemetry distributed tracing, Structured Logging, Regex PII scrubbing.
-5. Infrastructure & CI/CD: Automated regression test suite, Secret management context.
+Implements: Persistent SQLite, Async memory, Real Multi-Model Routing,
+Active HITL Gating, and Dedicated Structured Logging.
 """
 import os
 import re
@@ -44,7 +40,7 @@ class AuditLogger:
         logger.info(f"AUDIT | {event} | {sanitized}")
 
 # ---------------------------------------------------------
-# 2. PERSISTENT ASYNC DATABASE ENGINE & MEMORY BANK
+# 2. PERSISTENT DATABASE ENGINE & CONTEXT COMPACTOR
 # ---------------------------------------------------------
 DB_FILE = "deals_persistence.db"
 
@@ -75,19 +71,6 @@ async def save_deal_to_db(deal_id: str, deal_name: str, status: str, payload: di
     conn.close()
     AuditLogger.log("DB_PERSIST", {"deal_id": deal_id, "status": status})
 
-class MemoryBank:
-    """Session-based memory store for conversational continuity."""
-    def __init__(self):
-        self.sessions: Dict[str, List[Dict[str, str]]] = {}
-
-    def get_history(self, session_id: str) -> List[Dict[str, str]]:
-        return self.sessions.get(session_id, [])
-
-    def append_turn(self, session_id: str, role: str, content: str):
-        if session_id not in self.sessions:
-            self.sessions[session_id] = []
-        self.sessions[session_id].append({"role": role, "content": content})
-
 class ContextCompactor:
     """Manages token bloat and context sliding windows across multi-turn interactions."""
     def __init__(self, max_history_turns: int = 4):
@@ -99,14 +82,11 @@ class ContextCompactor:
         summary = {"role": "system", "content": "Prior deal context summarized: Validated preliminary lines."}
         return [summary] + history[-self.max_history_turns:]
 
-memory_bank = MemoryBank()
-compactor = ContextCompactor()
-
 # ---------------------------------------------------------
 # 3. CONTEXT SCHEMAS & TOOL INTERFACES
 # ---------------------------------------------------------
 class QuoteLineItem(BaseModel):
-    role_name: str = Field(description="Role designation, e.g., 'Cloud Architect' or 'Partner Engineer'")
+    role_name: str = Field(description="Role designation, e.g., 'Cloud Architect'")
     hours: int = Field(description="Total scheduled hours", gt=0)
     hourly_rate: float = Field(description="Effective hourly rate in USD", gt=0)
     month_start: int = Field(description="Project start month (1-indexed)", ge=1)
@@ -121,18 +101,9 @@ class DealInput(BaseModel):
     line_items: List[QuoteLineItem] = Field(description="Planned project roles")
 
 # ---------------------------------------------------------
-# 4. SUB-AGENTS & ACTIVE HITL GATING
+# 4. ACTIVE GOVERNANCE INTERCEPTORS & HITL GATING
 # ---------------------------------------------------------
 def run_compliance_checks(deal: DealInput) -> Dict[str, Any]:
-    """
-    Validates GSF credit expiration and role eligibility across project timelines.
-    
-    Parameters:
-      deal (DealInput): The complete input schema containing quote line items.
-      
-    Returns:
-      Dict[str, Any]: Results of validation, including violation flags and remediation steps.
-    """
     with tracer.start_as_current_span("compliance_checks"):
         violations = []
         total_gsf = 0.0
@@ -188,7 +159,7 @@ def request_deal_desk_override(deal_name: str, reason: str) -> Dict[str, Any]:
     }
 
 # ---------------------------------------------------------
-# 5. MULTI-AGENT COORDINATOR & STRATEGIC ROUTING
+# 5. MULTI-MODEL COORDINATION & ROUTING
 # ---------------------------------------------------------
 SYSTEM_CONSTITUTION = """
 You are the elite GCC Commercial Deal Structuring Copilot.
@@ -197,48 +168,31 @@ You analyze deal mechanics, enforce strict go/psoguardrails policies, and sugges
 Provide outputs in professional Markdown.
 """
 
-class MultiAgentCoordinator:
-    """
-    Orchestration Pattern: Coordinates specialized sub-agents and dynamically routes
-    requests between fast verification (Flash) and deep synthesis (Pro).
-    """
-    def __init__(self):
-        self.fast_model = "gemini-2.5-flash"
-        self.deep_reasoning_model = "gemini-2.5-pro"
-        self.compactor = ContextCompactor()
-
-    def generate_synthesis(self, deal: DealInput, compliance: dict) -> str:
-        api_key = os.environ.get("GEMINI_API_KEY", "MOCK_KEY")
+def generate_strategic_synthesis(deal: DealInput, compliance: dict) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY", "MOCK_KEY")
+    try:
         client = genai.Client(api_key=api_key)
-        
-        target_model = self.deep_reasoning_model if compliance["status"] == "BLOCKED_BY_COMPLIANCE" else self.fast_model
-        
+        target_model = 'gemini-2.5-flash'
+        if compliance["status"] == "BLOCKED_BY_COMPLIANCE":
+            target_model = 'gemini-2.5-pro'
+            
         prompt = f"""
-        Perform deep architectural financial analysis of this commercial structure.
-        Target Model Designated: {target_model}
+        Perform deep financial analysis of this commercial structure.
+        Target Model: {target_model}
         Deal Data: {json.dumps(deal.model_dump())}
-        Compliance Violations: {json.dumps(compliance)}
-        
-        Draft an Executive Opportunity Synthesis (EOS) containing our commercial strategy and compliance fixes.
+        Compliance: {json.dumps(compliance)}
         """
-        
-        try:
-            response = client.models.generate_content(
-                model=target_model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_CONSTITUTION,
-                    temperature=0.2
-                )
-            )
-            return response.text
-        except Exception as e:
-            return f"# EOS REPORT FALLBACK\nProcessed by {target_model}. Root cause: {str(e)}"
-
-coordinator = MultiAgentCoordinator()
+        response = client.models.generate_content(
+            model=target_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_CONSTITUTION, temperature=0.2)
+        )
+        return response.text
+    except Exception as e:
+        return f"# EOS REPORT FALLBACK\nProcessed. Root cause: {str(e)}"
 
 # ---------------------------------------------------------
-# 6. FASTAPI WEB APPLICATION
+# 6. FASTAPI WEB SERVER
 # ---------------------------------------------------------
 app = FastAPI(title="GSF Structuring Copilot")
 templates = Jinja2Templates(directory="templates")
@@ -266,13 +220,11 @@ async def get_dashboard(request: Request):
 async def evaluate_deal(deal: DealInput):
     deal_id = f"DEAL-{os.urandom(4).hex().upper()}"
     compliance = run_compliance_checks(deal)
-    
     await save_deal_to_db(deal_id, deal.deal_name, compliance["status"], {
         "deal_input": deal.model_dump(),
         "compliance": compliance
     })
-    
-    synthesis = coordinator.generate_synthesis(deal, compliance)
+    synthesis = generate_strategic_synthesis(deal, compliance)
     
     if compliance["status"] == "BLOCKED_BY_COMPLIANCE":
         override_ticket = request_deal_desk_override(deal.deal_name, f"{len(compliance['violations'])} violations found.")
@@ -292,11 +244,7 @@ async def evaluate_deal(deal: DealInput):
         "synthesis": synthesis
     }
 
-# ---------------------------------------------------------
-# 7. AUTOMATED EVALUATION SUITE (CI/CD REGRESSION HARNESS)
-# ---------------------------------------------------------
 def run_golden_eval_tests():
-    """Automated testing harness to statically measure agent regressions against golden cases."""
     clean_deal = DealInput(
         deal_name="Clean Test",
         contract_effective_date="2026-11-01",
